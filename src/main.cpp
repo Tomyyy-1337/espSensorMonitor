@@ -12,9 +12,10 @@
 void display(String line1, String line2 = "", String line3 = "", String line4 = "", String line5 = "", String line6 = "");
 void initWebSocket();
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-void handleWebSocketMessage(void *arg, uint8_t *data, size_t len);
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len, uint32_t id);
 String processor(const String& var);
 void sendWebSocketMessage(String type, int value);
+void respond_to_request(String tag, SensorData &data, uint32_t id, char identifier);
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0);
 WiFiManager wm;
@@ -24,19 +25,19 @@ AsyncWebSocket ws("/ws");
 
 int WLAN_RESET_PIN = 14;
 
-int POTENTIOMETER_PIN = 39;
+int PHOTORESISTOR_PIN = 39;
 int potentiometerPercent = 0;
 
-IntervalArray60 minuite_values(60000 / 60);
-IntervalArray60 hour_values(60000);
-IntervalArray60 day_values(60000 * 60);
+SensorData lightSensorData;
+
+unsigned long last_update = 0;	
 
 void setup() {
 	Serial.begin(9600);
 
 	// Init Pins
 	analogReadResolution(12);
-	pinMode(POTENTIOMETER_PIN, INPUT);
+	pinMode(PHOTORESISTOR_PIN, INPUT);
 	pinMode(WLAN_RESET_PIN, INPUT_PULLUP);
 
 	// Init Display
@@ -66,10 +67,8 @@ void setup() {
 	});
 	server.begin();
 
-	int pot_value = map(analogRead(POTENTIOMETER_PIN), 0, 4095, 0, 100);
-	minuite_values.add_unchecked(pot_value);
-	hour_values.add_unchecked(pot_value);
-	day_values.add_unchecked(pot_value);
+	int pot_value = map(analogRead(PHOTORESISTOR_PIN), 0, 4095, 0, 100);
+	lightSensorData.addSensorDataUnChecked(pot_value);
 }
 
 void loop() {
@@ -78,15 +77,17 @@ void loop() {
 		wm.resetSettings();
 		ESP.restart();
   	}
+	if (WiFi.status() != WL_CONNECTED) {
+		WiFi.reconnect();
+	}
 	ws.cleanupClients();
 
-	// Read Potentiometer
-	potentiometerPercent = map(analogRead(POTENTIOMETER_PIN), 0, 4095, 0, 100);
-	sendWebSocketMessage("P", potentiometerPercent);
-
-	minuite_values.add(potentiometerPercent);
-	hour_values.add(potentiometerPercent);
-	day_values.add(potentiometerPercent);
+	potentiometerPercent = map(analogRead(PHOTORESISTOR_PIN), 0, 4095, 0, 100);
+	if (millis() - last_update > 500) {
+		last_update = millis();
+		sendWebSocketMessage("H", potentiometerPercent);
+	}
+	lightSensorData.addSensorData(potentiometerPercent);
 
 	String filler = potentiometerPercent < 100 ? potentiometerPercent < 10 ? "  " : " " : "";
 	display(
@@ -96,7 +97,7 @@ void loop() {
 		"Helligkeit: "+ filler + String(potentiometerPercent) + "%"
 	);
 
-	delay(500);
+	delay(100);
 }
 
 void sendWebSocketMessage(String type, int value) {
@@ -118,7 +119,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 			Serial.printf("WebSocket client #%u disconnected\n", client->id());
 			break;
 		case WS_EVT_DATA:
-			handleWebSocketMessage(arg, data, len);
+			handleWebSocketMessage(arg, data, len, client->id());
 			break;
 		case WS_EVT_PONG:
 		case WS_EVT_ERROR:
@@ -126,32 +127,29 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 	}
 }
 
-void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len, uint32_t id) {
 	AwsFrameInfo *info = (AwsFrameInfo*)arg;
 	if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
 		data[len] = 0;
 		String message = (char*)data;
-		if (message == "M") {
-			String response = "D:";
-			for (int i = 0; i < minuite_values.length; i++) {
-				response += String(minuite_values.values[i]) + ",";
-			}
-			ws.textAll(response);
-		} else if (message == "H") {
-			String response = "D:";
-			for (int i = 0; i < hour_values.length; i++) {
-				response += String(hour_values.values[i]) + ",";
-			}
-			ws.textAll(response);
-		} else if (message == "D") {
-			String response = "D:";
-			for (int i = 0; i < day_values.length; i++) {
-				response += String(day_values.values[i]) + ",";
-			}
-			ws.textAll(response);
+		switch (message[0]) {
+			case 'H':
+				respond_to_request("DH", lightSensorData, id, message[1]);
+				break;
 		}
-		
 	}
+}
+
+void respond_to_request(String tag, SensorData &data, uint32_t id, char identifier) {
+	String response = tag + ":";
+	IntervalArray60 &array = data.getArray(identifier);
+
+	unsigned long time_since_last_update = millis() / 100 - array.last_update;
+	response += String(time_since_last_update) + ",";
+	for (int i = 0; i < array.length; i++) {
+		response += String(array.values[i]) + ",";
+	}
+	ws.text(id, response);
 }
 
 String processor(const String& var) {

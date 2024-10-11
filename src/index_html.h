@@ -120,15 +120,16 @@ const char index_html[] PROGMEM = R"rawliteral(
         var websocket;
         var last_server_msg_time = Date.now();
         var selectedTimeRange = 60000; 
-        var raw_data = [];
-        var last_data_update;
+        var raw_light_data = [];
+        var last_helligkeit_update;
+        var format = 'HH:mm:ss';
         
         // initialize data table for chart
         google.charts.load('current', {packages: ['corechart']});
-        google.charts.setOnLoadCallback(drawChart);
+        google.charts.setOnLoadCallback(drawLightChart);
 
         window.addEventListener('resize', function(event){
-            drawChart();
+            drawLightChart();
         });
         
         window.addEventListener('load', onLoad);
@@ -142,9 +143,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             }, 1000); 
         }
         function initButton() {
-            document.getElementsByClassName('small-button')[0].addEventListener('click', getOneMinuteData);
-            document.getElementsByClassName('small-button')[1].addEventListener('click', getOneHourData);
-            document.getElementsByClassName('small-button')[2].addEventListener('click', getOneDayData);
+            document.getElementById('oneMin').addEventListener('click', getOneMinuteDataHelligkeit);
+            document.getElementById('oneHour').addEventListener('click', getOneHourDataHelligkeit);
+            document.getElementById('twelveHours').addEventListener('click', getTwelveHourDataHelligkeit);
+            document.getElementById('oneDay').addEventListener('click', getOneDayDataHelligkeit);
+            document.getElementById('oneWeek').addEventListener('click', getOneWeekDataHelligkeit);
         }
 
         function initWebSocket() {
@@ -156,7 +159,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
         function onOpen(event) {
             console.log('Connection opened');
-            getOneMinuteData();
+            getOneMinuteDataHelligkeit();
         }
         function onClose(event) {
             console.log('Connection closed');
@@ -168,49 +171,64 @@ const char index_html[] PROGMEM = R"rawliteral(
 
             var message = event.data;
             var state = message.split(':');
-            if (state[0] == 'P') {
+            if (state[0] == 'H') {
                 document.getElementById('pot_state').innerHTML = state[1];
                 var waittime = selectedTimeRange / 60;
-                if (Date.now() - last_data_update > waittime) {
-                    raw_data.push([new Date(), parseInt(state[1])]);
-                    if (raw_data.length > 60) {
-                        raw_data.shift();
+                if (Date.now() - last_helligkeit_update > waittime) {
+                    raw_light_data.push([new Date(), parseInt(state[1])]);
+                    if (raw_light_data.length > 60) {
+                        raw_light_data.shift();
                     }
-                    drawChart();
-                    last_data_update = Date.now();
+                    drawLightChart();
+                    last_helligkeit_update = Date.now();
                 }
-            } else if (state[0] == 'D') {
-                raw_data = [];
+            } else if (state[0] == 'DH') {
+                raw_light_data = [];
                 var values = state[1].split(',');
-                for (var i = 0; i < values.length-1; i++) {
-                    raw_data.push([new Date(new Date().getTime() - selectedTimeRange + (i + 60-values.length+1) * selectedTimeRange / 60), parseInt(values[i])]);
+                var time_since_last_update = parseInt(values[0]) * 100;
+                for (var i = 1; i < values.length-1; i++) {
+                    raw_light_data.push([new Date(new Date().getTime() - selectedTimeRange + (i + 60-values.length+2) * selectedTimeRange / 60 - time_since_last_update), parseInt(values[i])]);
                 }
-                last_data_update = Date.now();
-                drawChart();
+                last_helligkeit_update = Date.now() - time_since_last_update;
+                drawLightChart();
             }
         }
 
-        function getOneMinuteData() {
-            // send a message to server to get one minute data
-            websocket.send('M');
+        function getOneMinuteDataHelligkeit() {
+            websocket.send('HM');
             selectedTimeRange = 60000;
+            format = 'HH:mm:ss';
         }
 
-        function getOneHourData() {
-            websocket.send('H');
+        function getOneHourDataHelligkeit() {
+            websocket.send('HH');
             selectedTimeRange = 3600000;
+            format = 'HH:mm';
         }
 
-        function getOneDayData() {
-            websocket.send('D');
+        function getOneDayDataHelligkeit() {
+            websocket.send('HD');
             selectedTimeRange = 86400000;
+            format = 'HH:mm';
         }
 
-        function drawChart() {   
+        function getTwelveHourDataHelligkeit() {
+            websocket.send('HT');
+            selectedTimeRange = 43200000;
+            format = 'HH:mm';
+        }
+
+        function getOneWeekDataHelligkeit() {
+            websocket.send('HW');
+            selectedTimeRange = 604800000;
+            format = 'dd/MM HH:mm';
+        }
+
+        function drawLightChart() {   
             var data = new google.visualization.DataTable();
             data.addColumn('datetime', 'Zeit');
             data.addColumn('number', 'Helligkeit');
-            data.addRows(raw_data);
+            data.addRows(raw_light_data);
 
             var options = {
                 curveType: 'function',
@@ -226,22 +244,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     }
                 },
                 hAxis: {
-                    format: 'HH:mm:ss',
-                    gridlines: {
-                        count: -1,
-                        units: {
-                            hours: {format: ['HH:mm', 'ha']},
-                            minutes: {format: ['HH:mm', ':mm']},
-                            seconds: {format: ['HH:mm:ss', 'ss']}
-                        }
-                    },
-                    minorGridlines: {
-                        units: {
-                            hours: {format: ['HH:mm:ss', 'HH:mm:ss']},
-                            minutes: {format: ['HH:mm:ss', 'HH:mm:ss']},
-                            seconds: {format: ['HH:mm:ss', 'HH:mm:ss']}
-                        }
-                    },
+                    format: format,
                     minValue: new Date(new Date().getTime() - selectedTimeRange),
                     viewWindow: {
                         min: new Date(new Date().getTime() - selectedTimeRange),
@@ -270,9 +273,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             <p class="state"><span id="pot_state">%POT_STATE%</span>&#37</p>
             <div id="curve_chart" class="chart"></div>
             <div class="horizontal-layout" >
-                <button class="small-button">1 Minute</button>
-                <button class="small-button">1 Stunde</button>
-                <button class="small-button">1 Tag</button>
+                <button class="small-button" id="oneMin">1 Minute</button>
+                <button class="small-button" id="oneHour">1 Stunde</button>
+                <button class="small-button" id="twelveHours">12 Stunden</button>
+                <button class="small-button" id="oneDay">1 Tag</button>
+                <button class="small-button" id="oneWeek">1 Woche</button>
             </div>
         </div>
     </div>
