@@ -6,6 +6,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <U8g2lib.h>
+#include "DHT20.h"
 #include "index_html.h"	
 #include "IntervalArray60.cpp"
 
@@ -19,6 +20,7 @@ void respond_to_request(String tag, SensorData &data, uint32_t id, char identifi
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0);
 WiFiManager wm;
+DHT20 DHT(&Wire1);
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -34,6 +36,8 @@ unsigned long last_update = 0;
 
 void setup() {
 	Serial.begin(9600);
+
+	Wire1.begin(21, 22);
 
 	// Init Pins
 	analogReadResolution(12);
@@ -85,9 +89,19 @@ void loop() {
 	potentiometerPercent = map(analogRead(PHOTORESISTOR_PIN), 0, 4095, 0, 100);
 	if (millis() - last_update > 500) {
 		last_update = millis();
-		sendWebSocketMessage("H", potentiometerPercent);
+		sendWebSocketMessage("H" , potentiometerPercent);
 	}
 	lightSensorData.addSensorData(potentiometerPercent);
+
+	int status = DHT.read();
+ 	switch (status) {
+		case DHT20_OK:
+			Serial.println(DHT.getTemperature());
+			Serial.println(DHT.getHumidity());
+			break;
+	}
+
+
 
 	String filler = potentiometerPercent < 100 ? potentiometerPercent < 10 ? "  " : " " : "";
 	display(
