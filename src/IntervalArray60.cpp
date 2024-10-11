@@ -8,6 +8,9 @@ public:
 	unsigned long interval;
 	unsigned long time_offset = 0;
 
+	unsigned long sum = 0;
+	unsigned long count = 0;
+
 	IntervalArray60(unsigned long interval) {
 		this->interval = interval;
 	}
@@ -20,6 +23,8 @@ public:
 			length = 59;
 		}
 		values[length] = value;
+		sum = value;
+		count = 1;
 		length++;
 	}
 
@@ -35,8 +40,14 @@ public:
 				}
 				length = 59;
 			}
-			values[length] = value;
+			int average = static_cast<int>(sum / count);
+			values[length] = average;
+			sum = value;
+			count = 1;
 			length++;
+		} else {
+			sum += static_cast<unsigned long>(value);
+			count++;
 		}
 	}
 };
