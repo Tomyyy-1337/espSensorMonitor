@@ -119,9 +119,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         var gateway = `ws://${window.location.hostname}/ws`;
         var websocket;
         var last_server_msg_time = Date.now();
-        var selectedTimeRange = 60000; 
+        var selectedTimeRangeLight = 60000; 
+        var selectedTimeRangeTemperature = 60000;
+        var selectedTimeRangeHumidity = 60000;
         var raw_light_data = [];
-        var last_helligkeit_update;
+        var raw_temperature_data = [];
+        var raw_humidity_data = [];
+        var last_helligkeit_update = 0;
+        var last_temperature_update = 0;
+        var last_humidity_update = 0;
         var format = 'HH:mm:ss';
         
         // initialize data table for chart
@@ -130,6 +136,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         window.addEventListener('resize', function(event){
             drawLightChart();
+            drawTemperatureChart();
+            drawHumidityChart();
         });
         
         window.addEventListener('load', onLoad);
@@ -148,6 +156,16 @@ const char index_html[] PROGMEM = R"rawliteral(
             document.getElementById('twelveHours').addEventListener('click', getTwelveHourDataHelligkeit);
             document.getElementById('oneDay').addEventListener('click', getOneDayDataHelligkeit);
             document.getElementById('oneWeek').addEventListener('click', getOneWeekDataHelligkeit);
+            document.getElementById('oneMinTemp').addEventListener('click', getOneMinuteDataTemperature);
+            document.getElementById('oneHourTemp').addEventListener('click', getOneHourDataTemperature);
+            document.getElementById('twelveHoursTemp').addEventListener('click', getTwelveHourDataTemperature);
+            document.getElementById('oneDayTemp').addEventListener('click', getOneDayDataTemperature);
+            document.getElementById('oneWeekTemp').addEventListener('click', getOneWeekDataTemperature);
+            document.getElementById('oneMinHumid').addEventListener('click', getOneMinuteDataHumidity);
+            document.getElementById('oneHourHumid').addEventListener('click', getOneHourDataHumidity);
+            document.getElementById('twelveHoursHumid').addEventListener('click', getTwelveHourDataHumidity);
+            document.getElementById('oneDayHumid').addEventListener('click', getOneDayDataHumidity);
+            document.getElementById('oneWeekHumid').addEventListener('click', getOneWeekDataHumidity);
         }
 
         function initWebSocket() {
@@ -159,7 +177,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
         function onOpen(event) {
             console.log('Connection opened');
-            getOneMinuteDataHelligkeit();
+            getOneHourDataHelligkeit();
+            getOneMinuteDataTemperature();
+            getOneMinuteDataHumidity();
         }
         function onClose(event) {
             console.log('Connection closed');
@@ -173,7 +193,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             var state = message.split(':');
             if (state[0] == 'H') {
                 document.getElementById('pot_state').innerHTML = state[1];
-                var waittime = selectedTimeRange / 60;
+                var waittime = selectedTimeRangeLight / 60;
                 if (Date.now() - last_helligkeit_update > waittime) {
                     raw_light_data.push([new Date(), parseInt(state[1])]);
                     if (raw_light_data.length > 60) {
@@ -187,40 +207,144 @@ const char index_html[] PROGMEM = R"rawliteral(
                 var values = state[1].split(',');
                 var time_since_last_update = parseInt(values[0]) * 100;
                 for (var i = 1; i < values.length-1; i++) {
-                    raw_light_data.push([new Date(new Date().getTime() - selectedTimeRange + (i + 60-values.length+2) * selectedTimeRange / 60 - time_since_last_update), parseInt(values[i])]);
+                    raw_light_data.push([new Date(new Date().getTime() - selectedTimeRangeLight + (i + 60-values.length+2) * selectedTimeRangeLight / 60 - time_since_last_update), parseInt(values[i])]);
                 }
                 last_helligkeit_update = Date.now() - time_since_last_update;
                 drawLightChart();
+            } else if (state[0] == 'T') {
+                document.getElementById('temp_state').innerHTML = state[1] / 10;
+                var waittime = selectedTimeRangeTemperature / 60;
+                if (Date.now() - last_temperature_update > waittime) {
+                    var temp = state[1] / 10;
+                    raw_temperature_data.push([new Date(), temp]);
+                    if (raw_temperature_data.length > 60) {
+                        raw_temperature_data.shift();
+                    }
+                    drawTemperatureChart();
+                    last_temperature_update = Date.now();
+                }
+            } else if (state[0] == 'DT') {
+                raw_temperature_data = [];
+                var values = state[1].split(',');
+                var time_since_last_update = parseInt(values[0]) * 100;
+                for (var i = 1; i < values.length-1; i++) {
+                    var temp = values[i] / 10;
+                    raw_temperature_data.push([new Date(new Date().getTime() - selectedTimeRangeTemperature + (i + 60-values.length+2) * selectedTimeRangeTemperature / 60 - time_since_last_update), temp]);
+                }
+                last_temperature_update = Date.now() - time_since_last_update;
+                drawTemperatureChart();
+            } else if (state[0] == 'U') {
+                document.getElementById('humid_state').innerHTML = state[1] / 10;
+                var waittime = selectedTimeRangeHumidity / 60;
+                if (Date.now() - last_humidity_update > waittime) {
+                    var humid = state[1] / 10;
+                    raw_humidity_data.push([new Date(), parseInt(humid)]);
+                    if (raw_humidity_data.length > 60) {
+                        raw_humidity_data.shift();
+                    }
+                    drawHumidityChart();
+                    last_humidity_update = Date.now();
+                }
+            } else if (state[0] == 'DU') {
+                raw_humidity_data = [];
+                var values = state[1].split(',');
+                var time_since_last_update = parseInt(values[0]) * 100;
+                for (var i = 1; i < values.length-1; i++) {
+                    var humid = values[i] / 10;
+                    raw_humidity_data.push([new Date(new Date().getTime() - selectedTimeRangeHumidity + (i + 60-values.length+2) * selectedTimeRangeHumidity / 60 - time_since_last_update), humid]);
+                }
+                last_humidity_update = Date.now() - time_since_last_update;
+                drawHumidityChart();
             }
         }
 
         function getOneMinuteDataHelligkeit() {
             websocket.send('HM');
-            selectedTimeRange = 60000;
+            selectedTimeRangeLight = 60000;
             format = 'HH:mm:ss';
         }
 
         function getOneHourDataHelligkeit() {
             websocket.send('HH');
-            selectedTimeRange = 3600000;
+            selectedTimeRangeLight = 3600000;
             format = 'HH:mm';
         }
 
         function getOneDayDataHelligkeit() {
             websocket.send('HD');
-            selectedTimeRange = 86400000;
+            selectedTimeRangeLight = 86400000;
             format = 'HH:mm';
         }
 
         function getTwelveHourDataHelligkeit() {
             websocket.send('HT');
-            selectedTimeRange = 43200000;
+            selectedTimeRangeLight = 43200000;
             format = 'HH:mm';
         }
 
         function getOneWeekDataHelligkeit() {
             websocket.send('HW');
-            selectedTimeRange = 604800000;
+            selectedTimeRangeLight = 604800000;
+            format = 'dd/MM HH:mm';
+        }
+
+        function getOneMinuteDataTemperature() {
+            websocket.send('TM');
+            selectedTimeRangeTemperature = 60000;
+            format = 'HH:mm:ss';
+        }
+
+        function getOneHourDataTemperature() {
+            websocket.send('TH');
+            selectedTimeRangeTemperature  = 3600000;
+            format = 'HH:mm';
+        }
+
+        function getOneDayDataTemperature() {
+            websocket.send('TD');
+            selectedTimeRangeTemperature = 86400000;
+            format = 'HH:mm';
+        }
+
+        function getTwelveHourDataTemperature() {
+            websocket.send('TT');
+            selectedTimeRangeTemperature = 43200000;
+            format = 'HH:mm';
+        }
+
+        function getOneWeekDataTemperature() {
+            websocket.send('TW');
+            selectedTimeRangeTemperature = 604800000;
+            format = 'dd/MM HH:mm';
+        }
+
+        function getOneMinuteDataHumidity() {
+            websocket.send('UM');
+            selectedTimeRangeHumidity = 60000;
+            format = 'HH:mm:ss';
+        }
+
+        function getOneHourDataHumidity() {
+            websocket.send('UH');
+            selectedTimeRangeHumidity = 3600000;
+            format = 'HH:mm';
+        }
+
+        function getOneDayDataHumidity() {
+            websocket.send('UD');
+            selectedTimeRangeHumidity = 86400000;
+            format = 'HH:mm';
+        }
+
+        function getTwelveHourDataHumidity() {
+            websocket.send('UT');
+            selectedTimeRangeHumidity = 43200000;
+            format = 'HH:mm';
+        }
+
+        function getOneWeekDataHumidity() {
+            websocket.send('UW');
+            selectedTimeRangeHumidity = 604800000;
             format = 'dd/MM HH:mm';
         }
 
@@ -245,15 +369,83 @@ const char index_html[] PROGMEM = R"rawliteral(
                 },
                 hAxis: {
                     format: format,
-                    minValue: new Date(new Date().getTime() - selectedTimeRange),
+                    minValue: new Date(new Date().getTime() - selectedTimeRangeLight),
                     viewWindow: {
-                        min: new Date(new Date().getTime() - selectedTimeRange),
+                        min: new Date(new Date().getTime() - selectedTimeRangeLight),
                         max: new Date()
                     }
                 }
             };
 
             var chart = new google.visualization.LineChart(document.getElementById('curve_chart'));
+
+            chart.draw(data, options);
+        }
+
+        function drawTemperatureChart() {
+            var data = new google.visualization.DataTable();
+            data.addColumn('datetime', 'Zeit');
+            data.addColumn('number', 'Temperatur');
+            data.addRows(raw_temperature_data);
+
+            var options = {
+                curveType: 'function',
+                legend: { position: 'bottom' },
+                colors: ['#0f8b8d'],
+                backgroundColor: '#F8F7F9',
+                vAxis: {
+                    minValue: 0,
+                    maxValue: 100,
+                    viewWindow: {
+                        min: 0,
+                        max: 100
+                    }
+                },
+                hAxis: {
+                    format: format,
+                    minValue: new Date(new Date().getTime() - selectedTimeRangeTemperature),
+                    viewWindow: {
+                        min: new Date(new Date().getTime() - selectedTimeRangeTemperature),
+                        max: new Date()
+                    }
+                }
+            };
+
+            var chart = new google.visualization.LineChart(document.getElementById('curve_chart_temp'));
+
+            chart.draw(data, options);
+        }
+
+        function drawHumidityChart() {
+            var data = new google.visualization.DataTable();
+            data.addColumn('datetime', 'Zeit');
+            data.addColumn('number', 'Luftfeuchtigkeit');
+            data.addRows(raw_humidity_data);
+
+            var options = {
+                curveType: 'function',
+                legend: { position: 'bottom' },
+                colors: ['#0f8b8d'],
+                backgroundColor: '#F8F7F9',
+                vAxis: {
+                    minValue: 0,
+                    maxValue: 100,
+                    viewWindow: {
+                        min: 0,
+                        max: 100
+                    }
+                },
+                hAxis: {
+                    format: format,
+                    minValue: new Date(new Date().getTime() - selectedTimeRangeHumidity),
+                    viewWindow: {
+                        min: new Date(new Date().getTime() - selectedTimeRangeHumidity),
+                        max: new Date()
+                    }
+                }
+            };
+
+            var chart = new google.visualization.LineChart(document.getElementById('curve_chart_humid'));
 
             chart.draw(data, options);
         }
@@ -280,6 +472,30 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <button class="small-button" id="oneWeek">1 Woche</button>
             </div>
         </div>
+        <div class="card">
+            <h2>Temperatur</h2>
+            <p class="state"><span id="temp_state">%TEMP_STATE%</span>&#176C</p>
+            <div id="curve_chart_temp" class="chart"></div>
+            <div class="horizontal-layout" >
+                <button class="small-button" id="oneMinTemp">1 Minute</button>
+                <button class="small-button" id="oneHourTemp">1 Stunde</button>
+                <button class="small-button" id="twelveHoursTemp">12 Stunden</button>
+                <button class="small-button" id="oneDayTemp">1 Tag</button>
+                <button class="small-button" id="oneWeekTemp">1 Woche</button>
+            </div>  
+        </div>
+        <div class="card">
+            <h2>Luftfeuchtigkeit</h2>
+            <p class="state"><span id="humid_state">%HUMID_STATE%</span>&#37</p>
+            <div id="curve_chart_humid" class="chart"></div>
+            <div class="horizontal-layout" >
+                <button class="small-button" id="oneMinHumid">1 Minute</button>
+                <button class="small-button" id="oneHourHumid">1 Stunde</button>
+                <button class="small-button" id="twelveHoursHumid">12 Stunden</button>
+                <button class="small-button" id="oneDayHumid">1 Tag</button>
+                <button class="small-button" id="oneWeekHumid">1 Woche</button>
+            </div>
+        </div>  
     </div>
     <div class="horizontal-spacer"></div>
 </body>

@@ -9,7 +9,7 @@ public:
 	unsigned long time_offset = 0;
 
 	unsigned long sum = 0;
-	unsigned long count = 0;
+	unsigned long count = 1;
 
 	IntervalArray60(unsigned long interval) {
 		this->interval = interval;

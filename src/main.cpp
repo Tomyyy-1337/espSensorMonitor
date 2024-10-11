@@ -31,6 +31,8 @@ int PHOTORESISTOR_PIN = 39;
 int potentiometerPercent = 0;
 
 SensorData lightSensorData;
+SensorData temperatureSensorData;
+SensorData humiditySensorData;
 
 unsigned long last_update = 0;	
 
@@ -73,6 +75,8 @@ void setup() {
 
 	int pot_value = map(analogRead(PHOTORESISTOR_PIN), 0, 4095, 0, 100);
 	lightSensorData.addSensorDataUnChecked(pot_value);
+
+	delay(2000);
 }
 
 void loop() {
@@ -93,12 +97,22 @@ void loop() {
 	}
 	lightSensorData.addSensorData(potentiometerPercent);
 
-	int status = DHT.read();
- 	switch (status) {
-		case DHT20_OK:
-			Serial.println(DHT.getTemperature());
-			Serial.println(DHT.getHumidity());
+	switch (DHT.read()) {
+		case DHT20_ERROR_READ_TIMEOUT:
 			break;
+		case DHT20_ERROR_BYTES_ALL_ZERO:
+			break;
+		case DHT20_ERROR_LASTREAD:
+			break;
+		case 0:
+			int temp = static_cast<int>(DHT.getTemperature() * 10);
+			int humid = static_cast<int>(DHT.getHumidity() * 10);
+			sendWebSocketMessage("T", temp);
+			sendWebSocketMessage("U", humid);
+			temperatureSensorData.addSensorData(temp);
+			humiditySensorData.addSensorData(humid);
+			break;
+	
 	}
 
 
@@ -111,7 +125,6 @@ void loop() {
 		"Helligkeit: "+ filler + String(potentiometerPercent) + "%"
 	);
 
-	delay(100);
 }
 
 void sendWebSocketMessage(String type, int value) {
@@ -149,6 +162,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len, uint32_t id) {
 		switch (message[0]) {
 			case 'H':
 				respond_to_request("DH", lightSensorData, id, message[1]);
+				break;
+			case 'T':
+				respond_to_request("DT", temperatureSensorData, id, message[1]);
+				break;
+			case 'U':
+				respond_to_request("DU", humiditySensorData, id, message[1]);
 				break;
 		}
 	}
